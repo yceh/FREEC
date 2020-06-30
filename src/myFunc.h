@@ -16,6 +16,7 @@
 #include "linreg.h"
 #include "normaldistr.h"
 #include <string.h>
+#include <htslib/sam.h>
 
 #ifndef NA
 #define NA -1

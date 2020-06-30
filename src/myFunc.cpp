@@ -376,34 +376,25 @@ long getLineNumber(std::string const& fileName, std::string const& refFileName, 
 		#endif
     }
     else if (fileName.substr(fileName.size()-4,4).compare(".bam")==0) {
-        string command = "";
-        if (pathToSambamba != "")
-            {
-            command = pathToSambamba + " view -t " + SambambaThreads + " " +fileName;
-            //myInputFormat="sam";       //will try to use existing samtools
-            cout << "..sambamba should be installed to be able to read BAM files\n";
-            }
-        else
-            {
-            command = pathToSamtools + " view -@ "+ SambambaThreads + " " + fileName;
-            //myInputFormat="sam";       //will try to use existing samtools
-            cout << "..samtools should be installed to be able to read BAM files\n";
-            }
-        stream =
-            #if defined(_WIN32)
-				_popen(command.c_str(), "r");
-			#else
-				popen(command.c_str(), "r");
-			#endif
-
-        while ( fgets(buffer, MAX_BUFFER, stream) != NULL ) {
-            count++;
-        }
-        #if defined(_WIN32)
-				_pclose(stream);
-		#else
-				pclose(stream);
-		#endif
+		//copied from bam_idxstats in bam_index.c of samtools
+		uint64_t mapped;
+		uint64_t unmapped;
+		uint64_t mappedTotal=0;
+		const char read[]="r"; 
+    	samFile* fp=sam_open(fileName.c_str(),read);
+		hts_idx_t* idx=sam_index_load2(fp,fileName.c_str(),NULL);
+    	bam_hdr_t* header=sam_hdr_read(fp);
+		//fast read count
+		for (int i = 0; i <header->n_targets; i++)
+		{
+			//not really sure why all reads, including ones outside ROI should be counted
+			if (!hts_idx_get_stat(idx,i,&mapped,&unmapped))
+			{
+				mappedTotal+=mapped;
+			}
+		}
+		//slow TODO
+		return mappedTotal;
     }
     else if (fileName.substr(fileName.size()-5,5).compare(".cram")==0) {
         string command = "";

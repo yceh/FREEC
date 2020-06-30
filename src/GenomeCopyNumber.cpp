@@ -272,7 +272,9 @@ void GenomeCopyNumber::fillMyHash(std::string const& mateFileName ,std::string c
 	long count = 0;
 	long normalCount = 0;
 	int bin = 0;
-
+    bam1_t* aln=NULL;
+    samFile *fp=NULL;
+    bam_hdr_t *h=NULL;
 	cout << "..[genomecopynumber] Starting reading "<< mateFileName << "\n";
 	//if (mateFileName.substr(mateFileName.size()-1,3).compare(".gz")==0) {
 	//	igzstream in( mateFileName );
@@ -320,10 +322,10 @@ void GenomeCopyNumber::fillMyHash(std::string const& mateFileName ,std::string c
                     }
                 else
                     {
-		    command = pathToSamtools_ + " view -@ " + SambambaThreads_ + " " +mateFileName;
-                    myInputFormat="sam";       //will try to use existing samtools
-                    //cout << "..samtools should be installed to be able to read BAM files; will use the following command for samtools: "<<pathToSamtools_ + " view "+mateFileName<<"\n";
-                    cout << "..samtools should be installed to be able to read BAM files; will use the following command for samtools: "<< command <<"\n";
+                        const char read[]="r";
+                        fp=sam_open(mateFileName.c_str(),read);
+                        h=sam_hdr_read(fp);
+                        aln=bam_init1();
                     }
 	  }
 	  else if (mateFileName.substr(mateFileName.size()-5,5).compare(".cram")==0) {
@@ -356,7 +358,18 @@ void GenomeCopyNumber::fillMyHash(std::string const& mateFileName ,std::string c
         else {
             command = "gzip -cd "+mateFileName;
 		}
-
+        if(fp){
+            while (sam_read1(fp,h,aln))
+            {
+                if(aln->core.flag&3852||aln->core.qual<35){
+                    continue;
+                }
+                count++;
+                normalCount+=processRead(inputFormat,matesOrientation,NULL, bin,targetBed, mateFileName,aln,h);
+            }
+            
+        }
+        else{
 		inputFormat = getInputFormat(myInputFormat);
 
         stream =
@@ -375,6 +388,7 @@ void GenomeCopyNumber::fillMyHash(std::string const& mateFileName ,std::string c
 		#else
 				pclose(stream);
 		#endif
+    }
 		cout << "..finished reading "<<mateFileName<<endl;
     } else {
  	        inputFormat = getInputFormat(inputFormat_str);
@@ -3790,13 +3804,13 @@ int GenomeCopyNumber::processRead(std::string const& inputFormat, std::string co
 }
 */
 
-int GenomeCopyNumber::processRead(InputFormat inputFormat, MateOrientation matesOrientation, const char* line_buffer, int & prevInd,std::string targetBed, std::string mateFileName)
+int GenomeCopyNumber::processRead(InputFormat inputFormat, MateOrientation matesOrientation, const char* line_buffer, int & prevInd,std::string targetBed, std::string mateFileName,bam1_t* aln,bam_hdr_t* h)
 {
 
     int read_Size =150; // in case it is not initialized (e.g. for Pileup files)
 
     if (!*line_buffer) {
-        return 0;
+        if(!aln) return 0;
     }
 
     int valueToReturn = 0;
@@ -3878,36 +3892,41 @@ int GenomeCopyNumber::processRead(InputFormat inputFormat, MateOrientation mates
     }
 
     if (inputFormat == SAM_INPUT_FORMAT && matesOrientation == SINGLE_END_SORTED_SAM)  {
-
-        if (line_buffer[0] == '@')
-            return 0;
-
-        // EV: to be optimized
-        string chr1,chr2;
+      string chr;
+      int left;
+      if (line_buffer) {
+        if (line_buffer[0] == '@') return 0;
         char* strs[32];
         unsigned int strs_cnt = split((char*)line_buffer, '\t', strs);
-        if (strs_cnt > 3) {
+        if (strs_cnt <= 3) return 0;
+        chr = strs[2];
+        left = atoi(strs[3]);
+        if (WESanalysis) {
+          string sequence = strs[9];
+          read_Size = sequence.size();
+        }
+      }else if(aln){
+          chr=h->target_name[aln->core.tid];
+          left=aln->core.pos;
+          if(WESanalysis){
+              read_Size=bam_cigar2qlen(aln->core.n_cigar,bam_get_cigar(aln));
+          }
+      }
+        // EV: to be optimized
+        
             if (WESanalysis == false) {
-                string chr = strs[2];
                 processChrName(chr);
-                if (chr.compare("*")!=0 ) {
-                    int left = atoi(strs[3]);
                     int index = findIndex(chr);
                     if (index!=NA) {
                         chrCopyNumber_[index].mappedPlusOneAtI(left,step_);
                         valueToReturn=1;
                     }
-                }
             } else {
-                string sequence = strs[9];
-                read_Size = sequence.size();
-                string chr = strs[2];
+                
                 processChrName(chr);
                 int index = findIndex(chr);
                 //chr = "chr" + chr; //I do not understand why it was written here. Valentina
                 int l = 0;
-                if (chr.compare("*")!=0 ) {
-                    int left = atoi(strs[3]);
                     if (index!=NA) {
                         int right = left + read_Size;
                         bool leftIsInTheWindow = false;
@@ -3940,9 +3959,8 @@ int GenomeCopyNumber::processRead(InputFormat inputFormat, MateOrientation mates
                             return valueToReturn;
                         }
                     }
-                }
             }
-        }
+        
         return valueToReturn;
     }
 
