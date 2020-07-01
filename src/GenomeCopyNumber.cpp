@@ -359,13 +359,13 @@ void GenomeCopyNumber::fillMyHash(std::string const& mateFileName ,std::string c
             command = "gzip -cd "+mateFileName;
 		}
         if(fp){
-            while (sam_read1(fp,h,aln))
+            while (sam_read1(fp,h,aln)>=0)
             {
                 if(aln->core.flag&3852||aln->core.qual<35){
                     continue;
                 }
                 count++;
-                normalCount+=processRead(inputFormat,matesOrientation,NULL, bin,targetBed, mateFileName,aln,h);
+                normalCount+=processRead(SAM_INPUT_FORMAT,matesOrientation,NULL, bin,targetBed, mateFileName,aln,h);
             }
             
         }
@@ -3809,7 +3809,7 @@ int GenomeCopyNumber::processRead(InputFormat inputFormat, MateOrientation mates
 
     int read_Size =150; // in case it is not initialized (e.g. for Pileup files)
 
-    if (!*line_buffer) {
+    if (!line_buffer||!*line_buffer) {
         if(!aln) return 0;
     }
 
